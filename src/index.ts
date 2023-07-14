@@ -6,9 +6,8 @@ import "dotenv/config";
 
 const app: Express = express();
 
-app.use(cors());
+app.use(cors({ origin: ["http://localhost:3001"], credentials: true }));
 app.use("/", appRouter);
-app.use(bodyParser);
 
 app.listen(3000, () => {
   console.log(`⚡️[server]: Server is running at http://localhost:3000`);
