@@ -8,7 +8,7 @@ import bodyParser from "body-parser";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import cors from "cors";
-
+import { ObjectId } from "mongodb";
 export const appRouter = express.Router();
 appRouter.use(bodyParser.json());
 
@@ -17,19 +17,22 @@ const uri: any = process.env.MONGO_URI;
 appRouter.post("/", cookieParser(), (req: Request, res: Response) => {
   const client = new MongoClient(uri);
   const token = req.cookies.token;
-  if (token) {
+  if (!token) {
     return res.json({ status: false });
   }
+  console.log("here");
   let sec: string = process.env.TOKEN_KEY as string;
 
   jwt.verify(token, sec, async (err: any, data: any) => {
     if (err) {
       return res.json({ status: false });
     } else {
+      const id = new ObjectId(data.id);
       const user = await client
         .db("AiPromptForumData")
         .collection("Users")
-        .findOne(data.id);
+        .findOne({ _id: id });
+      console.log(user);
       if (user) return res.json({ status: true, user: user.username });
       else return res.json({ status: false });
     }
