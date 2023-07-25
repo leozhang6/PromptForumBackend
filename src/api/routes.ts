@@ -13,9 +13,22 @@ export const appRouter = express.Router();
 appRouter.use(bodyParser.json());
 
 const uri: any = process.env.MONGO_URI;
+let client: MongoClient | null = null;
 
-appRouter.post("/", cookieParser(), (req: Request, res: Response) => {
-  const client = new MongoClient(uri);
+appRouter.use(async (req: Request, res: Response, next) => {
+  try {
+    if (!client) {
+      client = new MongoClient(uri);
+      await client.connect();
+    }
+    next();
+  } catch (error) {
+    console.error("Error connecting to MongoDB:", error);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+appRouter.post("/", cookieParser(), async (req: Request, res: Response) => {
   const token = req.cookies.token;
   if (!token) {
     return res.json({ status: false });
@@ -23,29 +36,47 @@ appRouter.post("/", cookieParser(), (req: Request, res: Response) => {
   console.log("here");
   let sec: string = process.env.TOKEN_KEY as string;
 
-  jwt.verify(token, sec, async (err: any, data: any) => {
-    if (err) {
-      return res.json({ status: false });
-    } else {
-      const id = new ObjectId(data.id);
-      const user = await client
-        .db("AiPromptForumData")
-        .collection("Users")
-        .findOne({ _id: id });
-      console.log(user);
-      if (user) return res.json({ status: true, user: user.username });
-      else return res.json({ status: false });
-    }
-  });
+  try {
+    jwt.verify(token, sec, async (err: any, data: any) => {
+      if (err) {
+        return res.json({ status: false });
+      } else {
+        const id = new ObjectId(data.id);
+        const user = await client!
+          .db("AiPromptForumData")
+          .collection("Users")
+          .findOne({ _id: id });
+        console.log(user);
+        if (user) return res.json({ status: true, user: user.username });
+        else return res.json({ status: false });
+      }
+    });
+  } catch {
+    console.error("Error retriving posts:", error);
+    res.status(500).send("internal server error");
+  }
+});
+
+appRouter.get("/post/:id", async (req: Request, res: Response) => {
+  const id = new ObjectId(req.params.id);
+  console.log(req.params.id);
+  try {
+    const post = await client!
+      .db("AiPromptForumData")
+      .collection("Posts")
+      .findOne({ _id: id });
+    res.send(post);
+  } catch {
+    console.error("Error retriving posts:", error);
+    res.status(500).send("internal server error");
+  }
 });
 
 appRouter.get("/posts", async (req: Request, res: Response) => {
-  const client = new MongoClient(uri);
   try {
     // Connect to the MongoDB cluster
-    await client.connect();
 
-    const posts = await client
+    const posts = await client!
       .db("AiPromptForumData")
       .collection("Posts")
       .find({})
@@ -55,9 +86,6 @@ appRouter.get("/posts", async (req: Request, res: Response) => {
   } catch {
     console.error("Error retrieving posts:", error);
     res.status(500).send("Internal Server Error");
-  } finally {
-    // Close the connection to the MongoDB cluster
-    await client.close();
   }
 });
 
@@ -66,7 +94,6 @@ appRouter.post("/signup", cors(), async (req: Request, res: Response, next) => {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  const client = new MongoClient(uri);
   try {
     // Connect to the MongoDB cluster
     console.log(req.body);
@@ -75,9 +102,9 @@ appRouter.post("/signup", cors(), async (req: Request, res: Response, next) => {
     let password = req.body.password;
     let username = req.body.username;
     let createdAt = new Date();
-    await client.connect();
+    let likedPosts = new Object();
     password = await bcrypt.hash(password, 12);
-    const existingUser = await client
+    const existingUser = await client!
       .db("AiPromptForumData")
       .collection("Users")
       .findOne({ email });
@@ -85,7 +112,7 @@ appRouter.post("/signup", cors(), async (req: Request, res: Response, next) => {
       return res.json({ message: "User already exists" });
     }
     let userId = "";
-    const user = await client
+    const user = await client!
       .db("AiPromptForumData")
       .collection("Users")
       .insertOne({
@@ -93,6 +120,7 @@ appRouter.post("/signup", cors(), async (req: Request, res: Response, next) => {
         password: password,
         username: username,
         createdAt: createdAt,
+        likedPosts: likedPosts,
       })
       .then((result) => {
         userId = result.insertedId.toString();
@@ -110,22 +138,18 @@ appRouter.post("/signup", cors(), async (req: Request, res: Response, next) => {
   } catch {
     console.error("Error signing up:", error);
     res.status(500).send("Internal Server Error");
-  } finally {
-    // Close the connection to the MongoDB cluster
-    await client.close();
   }
 });
 
 appRouter.post("/login", async (req: Request, res: Response, next) => {
   res.setHeader("Access-Control-Allow-Origin", "http://localhost:3001");
-  const client = new MongoClient(uri);
   try {
     const email = req.body.email;
     const password = req.body.password;
     if (!email || !password) {
       return res.json({ message: "All fields are required" });
     }
-    const user = await client
+    const user = await client!
       .db("AiPromptForumData")
       .collection("Users")
       .findOne({
@@ -149,5 +173,18 @@ appRouter.post("/login", async (req: Request, res: Response, next) => {
     next();
   } catch (error) {
     console.error(error);
+  }
+});
+
+process.on("SIGINT", async () => {
+  try {
+    if (client) {
+      await client.close();
+      console.log("MongoDB connection closed.");
+      process.exit(0);
+    }
+  } catch (error) {
+    console.error("Error closing MongoDB connection:", error);
+    process.exit(1);
   }
 });
