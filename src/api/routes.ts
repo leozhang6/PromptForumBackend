@@ -47,8 +47,14 @@ appRouter.post("/", cookieParser(), async (req: Request, res: Response) => {
           .collection("Users")
           .findOne({ _id: id });
         console.log(user);
-        if (user) return res.json({ status: true, user: user.username });
-        else return res.json({ status: false });
+        if (user) {
+          return res.json({
+            status: true,
+            user: user.username,
+            _id: user._id,
+            likedPosts: user.likedPosts,
+          });
+        } else return res.json({ status: false });
       }
     });
   } catch {
@@ -89,6 +95,46 @@ appRouter.get("/posts", async (req: Request, res: Response) => {
   }
 });
 
+appRouter.post("/upvotePost", async (req: Request, res: Response) => {
+  console.log("here");
+  try {
+    const userId = new ObjectId(req.body.userId);
+    const postId = new ObjectId(req.body.postId);
+    console.log(userId);
+    await client!
+      .db("AiPromptForumData")
+      .collection("Users")
+      .updateOne({ _id: userId }, { $push: { likedPosts: postId } });
+    await client!
+      .db("AiPromptForumData")
+      .collection("Posts")
+      .updateOne({ _id: postId }, { $inc: { upvoteCount: 1 } });
+  } catch {
+    console.error("error upvoting post", error);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+appRouter.post("/downvotePost", async (req: Request, res: Response) => {
+  console.log("here");
+  try {
+    const userId = new ObjectId(req.body.userId);
+    const postId = new ObjectId(req.body.postId);
+    console.log(userId);
+    await client!
+      .db("AiPromptForumData")
+      .collection("Users")
+      .updateOne({ _id: userId }, { $pull: { likedPosts: postId } });
+    await client!
+      .db("AiPromptForumData")
+      .collection("Posts")
+      .updateOne({ _id: postId }, { $inc: { upvoteCount: -1 } });
+  } catch {
+    console.error("error upvoting post", error);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
 appRouter.post("/signup", cors(), async (req: Request, res: Response, next) => {
   res.setHeader("Access-Control-Allow-Origin", "http://localhost:3001");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST");
@@ -102,7 +148,7 @@ appRouter.post("/signup", cors(), async (req: Request, res: Response, next) => {
     let password = req.body.password;
     let username = req.body.username;
     let createdAt = new Date();
-    let likedPosts = new Object();
+    let likedPosts = new Array<ObjectId>();
     password = await bcrypt.hash(password, 12);
     const existingUser = await client!
       .db("AiPromptForumData")
